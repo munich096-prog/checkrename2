@@ -6,69 +6,70 @@ from PIL import Image
 import pytesseract
 import pdfplumber
 
-st.set_page_config(page_title="HAWB File Renamer", layout="centered")
-st.title("📦 ระบบเปลี่ยนชื่อไฟล์ใบขนสินค้าด้วย HAWB")
-st.write("อัปโหลดไฟล์ใบขนสินค้า (PDF, PNG, JPG) เพื่อเปลี่ยนชื่อไฟล์อัตโนมัติ")
+st.set_page_config(page_title="HAWB File Renamer", page_icon="📦", layout="centered")
 
-uploaded_file = st.file_uploader("ลากและวางไฟล์ที่นี่ (PDF, PNG, JPG)", type=["pdf", "png", "jpg", "jpeg"])
+st.markdown("""
+<style>
+.main{background:#f4f7fb;}
+.block-container{padding-top:2rem;max-width:820px;}
+.card{background:#fff;padding:28px;border-radius:16px;box-shadow:0 4px 16px rgba(0,0,0,.08);}
+h1{text-align:center;color:#0F4C81;}
+.small{text-align:center;color:#666;}
+</style>
+""", unsafe_allow_html=True)
 
-if uploaded_file is not None:
-    file_type = uploaded_file.name.rsplit('.', 1)[1].lower()
-    text = ""
-    
-    with st.spinner("กำลังอ่านข้อมูลจากไฟล์..."):
-        if file_type == "pdf":
-            # อ่านข้อความจากไฟล์ PDF โดยตรง
+st.markdown("<h1>📦 HAWB File Renamer</h1>", unsafe_allow_html=True)
+st.markdown("<div class='small'>Upload PDF / PNG / JPG เพื่อเปลี่ยนชื่อไฟล์อัตโนมัติ</div>", unsafe_allow_html=True)
+
+st.markdown("<div class='card'>", unsafe_allow_html=True)
+uploaded_file = st.file_uploader("📂 เลือกไฟล์", type=["pdf","png","jpg","jpeg"])
+st.markdown("</div>", unsafe_allow_html=True)
+
+def extract_hawb(text:str):
+    patterns=[
+        r'HAWB\s*No\.?\s*[:\-]?\s*([A-Za-z0-9\-]+)',
+        r'House\s*AWB\s*[:\-]?\s*([A-Za-z0-9\-]+)',
+        r'House\s*Air\s*Waybill\s*[:\-]?\s*([A-Za-z0-9\-]+)',
+        r'House\s*[\n\r,: ]+\s*([A-Za-z0-9\-]+)',
+        r'\(\s*([A-Za-z0-9\-]+)\s*\)'
+    ]
+    for p in patterns:
+        m=re.search(p,text,re.I)
+        if m:
+            return m.group(1)
+    return None
+
+if uploaded_file:
+    text=""
+    ext=uploaded_file.name.rsplit(".",1)[1].lower()
+    progress=st.progress(0,text="กำลังประมวลผล...")
+    try:
+        if ext=="pdf":
             with pdfplumber.open(uploaded_file) as pdf:
-                for page in pdf.pages:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text += page_text + "\n"
+                for p in pdf.pages:
+                    t=p.extract_text()
+                    if t:
+                        text+=t+"\n"
         else:
-            # อ่านจากรูปภาพด้วย OCR
-            image = Image.open(uploaded_file)
-            st.image(image, caption="ไฟล์ที่อัปโหลด", use_container_width=True)
-            img_np = np.array(image)
-            gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-            text = pytesseract.image_to_string(gray, lang='tha+eng')
-        
-        # --- ส่วนการค้นหาเลข HAWB ---
-        hawb_number = None
-        
-        # รูปแบบที่ 1: หาเลขในวงเล็บ (สำหรับไฟล์รูปแบบแรก)
-        match1 = re.search(r'\(\s*(\d+)\s*\)', text)
-        if match1:
-            hawb_number = match1.group(1)
-            
-        # รูปแบบที่ 2: หาเลขหลังคำว่า House (สำหรับไฟล์รูปแบบใหม่ที่เป็นตาราง PDF)
-        if not hawb_number:
-            match2 = re.search(r'House\s*[\n\r,:]*\s*(\d+)', text, re.IGNORECASE)
-            if match2:
-                hawb_number = match2.group(1)
-        
-        # --- ส่วนการเปลี่ยนชื่อไฟล์ตามเงื่อนไข Output ---
-        if hawb_number:
-            st.success(f"🔍 ตรวจพบเลข HAWB: {hawb_number}")
-            
-            original_name = uploaded_file.name.rsplit('.', 1)[0]
-            extension = uploaded_file.name.rsplit('.', 1)[1].lower()
-            
-            # เช็กเงื่อนไขการใช้ตัวเชื่อม (_ หรือ -)
-            if original_name.endswith("_AIR"):
-                new_filename = f"{original_name}_{hawb_number}.{extension}"
-            else:
-                new_filename = f"{original_name}-{hawb_number}.{extension}"
-            
-            st.info(f"💾 ชื่อไฟล์ใหม่จะเป็น: {new_filename}")
-            
+            image=Image.open(uploaded_file).convert("RGB")
+            st.image(image,caption="Preview",use_container_width=True)
+            gray=cv2.cvtColor(np.array(image),cv2.COLOR_RGB2GRAY)
+            gray=cv2.GaussianBlur(gray,(3,3),0)
+            gray=cv2.threshold(gray,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)[1]
+            text=pytesseract.image_to_string(gray,lang="tha+eng")
+        progress.progress(70,text="ค้นหา HAWB...")
+        hawb=extract_hawb(text)
+        progress.progress(100,text="เสร็จสิ้น")
+        with st.expander("ข้อความที่อ่านได้ (OCR/Text)"):
+            st.text(text[:5000])
+        if hawb:
+            st.success(f"พบ HAWB: {hawb}")
+            base=uploaded_file.name.rsplit(".",1)[0]
+            new=f"{base}_{hawb}.{ext}" if base.endswith("_AIR") else f"{base}-{hawb}.{ext}"
+            st.info(f"ชื่อใหม่: {new}")
             uploaded_file.seek(0)
-            file_bytes = uploaded_file.read()
-            
-            st.download_button(
-                label="📥 กดดาวน์โหลดไฟล์ที่เปลี่ยนชื่อแล้ว",
-                data=file_bytes,
-                file_name=new_filename,
-                mime=uploaded_file.type
-            )
+            st.download_button("📥 ดาวน์โหลดไฟล์",uploaded_file.read(),file_name=new,mime=uploaded_file.type,use_container_width=True)
         else:
-            st.error("❌ ไม่พบเลข HAWB ในไฟล์นี้ กรุณาตรวจสอบความถูกต้องของไฟล์อีกครั้ง")
+            st.error("ไม่พบเลข HAWB")
+    except Exception as e:
+        st.exception(e)
